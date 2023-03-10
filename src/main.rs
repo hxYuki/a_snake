@@ -6,6 +6,10 @@ use bevy::{prelude::*, time::common_conditions::on_fixed_timer, window::PrimaryW
 use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR, SNAKE_SEGMENT_COLOR};
 use rand::prelude::random;
 
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+enum FixedStepSet {
+    Tick,
+}
 
 fn main() {
     App::new()
@@ -15,14 +19,19 @@ fn main() {
         .add_event::<GameOverEvent>()
         .add_startup_systems((setup_window, setup_camera, spawn_snake))
         .add_system(snake_movement_input.in_schedule(CoreSchedule::FixedUpdate))
-        .add_systems((
-            snake_movement
-                .in_schedule(CoreSchedule::FixedUpdate)
-                .run_if(on_fixed_timer(Duration::from_secs_f32(0.25))),
-            snake_eating
-                .after(snake_movement)
-                .in_schedule(CoreSchedule::FixedUpdate),
-        ))
+        // currently systemset missed `in_schedule` api, 
+        // maybe replace with `configure_set(FixedStepSet::Tick.in_schedule(CoreSchedule::FixedUpdate))` in later patch
+        .edit_schedule(CoreSchedule::FixedUpdate, |schedule| {
+            schedule
+                .add_systems(
+                    (snake_movement, snake_eating)
+                        .chain()
+                        .in_set(FixedStepSet::Tick),
+                )
+                .configure_set(
+                    FixedStepSet::Tick.run_if(on_fixed_timer(Duration::from_secs_f32(0.25))),
+                );
+        })
         .add_system(snake_growth.run_if(on_event::<GrowthEvent>()))
         .add_system(game_over.after(snake_movement))
         .add_systems((position_translation, size_scaling).in_base_set(CoreSet::PostUpdate))
