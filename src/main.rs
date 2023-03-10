@@ -130,7 +130,6 @@ fn snake_movement(
     mut heads: Query<(&mut SnakeHead, Entity)>,
     mut positions: Query<&mut Position>,
 ) {
-    info!("move");
     for (mut head, et) in heads.iter_mut() {
         let headbody = &head.body;
         let segspos = headbody
@@ -279,7 +278,6 @@ fn snake_eating(
     food_positions: Query<(Entity, &Position), With<Food>>,
     head_positions: Query<&Position, With<SnakeHead>>,
 ) {
-    info!("eating");
     for head_pos in head_positions.iter() {
         for (ent, food_pos) in food_positions.iter() {
             if food_pos == head_pos {
