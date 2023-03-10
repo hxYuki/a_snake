@@ -1,46 +1,44 @@
 mod constants;
 
-use bevy::{prelude::*, time::FixedTimestep};
+use std::time::Duration;
+
+use bevy::{prelude::*, time::common_conditions::on_fixed_timer, window::PrimaryWindow};
 use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR, SNAKE_SEGMENT_COLOR};
 use rand::prelude::random;
 
+
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            window: WindowDescriptor {
-                title: "Snake!".to_string(),
-                width: 500.0,
-                height: 500.0,
-                ..default()
-            },
-            ..default()
-        }))
+        .add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::rgb(0.04, 0.04, 0.04)))
         .add_event::<GrowthEvent>()
         .add_event::<GameOverEvent>()
-        .add_startup_system(setup_camera)
-        .add_startup_system(spawn_snake)
-        .add_system_set(
-            SystemSet::new()
-                .with_run_criteria(FixedTimestep::step(0.250))
-                .with_system(snake_movement)
-                .with_system(snake_eating.after(snake_movement))
-                .with_system(snake_growth.after(snake_eating))
-                .with_system(game_over.after(snake_movement)),
-        )
-        .add_system(snake_movement_input.before(snake_movement))
-        .add_system_set_to_stage(
-            CoreStage::PostUpdate,
-            SystemSet::new()
-                .with_system(position_translation)
-                .with_system(size_scaling),
-        )
-        .add_system_set(
-            SystemSet::new()
-                .with_run_criteria(FixedTimestep::step(1.))
-                .with_system(food_spawner),
+        .add_startup_systems((setup_window, setup_camera, spawn_snake))
+        .add_system(snake_movement_input.in_schedule(CoreSchedule::FixedUpdate))
+        .add_systems((
+            snake_movement
+                .in_schedule(CoreSchedule::FixedUpdate)
+                .run_if(on_fixed_timer(Duration::from_secs_f32(0.25))),
+            snake_eating
+                .after(snake_movement)
+                .in_schedule(CoreSchedule::FixedUpdate),
+        ))
+        .add_system(snake_growth.run_if(on_event::<GrowthEvent>()))
+        .add_system(game_over.after(snake_movement))
+        .add_systems((position_translation, size_scaling).in_base_set(CoreSet::PostUpdate))
+        .add_system(
+            food_spawner
+                .in_schedule(CoreSchedule::FixedUpdate)
+                .run_if(on_fixed_timer(Duration::from_secs(1))),
         )
         .run();
+}
+
+fn setup_window(mut primary_query: Query<&mut Window, With<PrimaryWindow>>) {
+    let mut window = primary_query.get_single_mut().unwrap();
+
+    window.title = "Snake!".to_string();
+    window.resolution = (500., 500.).into();
 }
 
 fn setup_camera(mut commands: Commands) {
@@ -123,6 +121,7 @@ fn snake_movement(
     mut heads: Query<(&mut SnakeHead, Entity)>,
     mut positions: Query<&mut Position>,
 ) {
+    info!("move");
     for (mut head, et) in heads.iter_mut() {
         let headbody = &head.body;
         let segspos = headbody
@@ -143,12 +142,12 @@ fn snake_movement(
             || head_pos.x as u32 >= ARENA_WIDTH
             || head_pos.y as u32 >= ARENA_HEIGHT
         {
-            info!(target:"game over event","out bound, {:?}", head_pos);
+            // info!(target:"game over event","out bound, {:?}", head_pos);
 
             over_writer.send(GameOverEvent);
         }
         if segspos[1..].contains(&head_pos) {
-            info!(target:"game over event","tail eaten");
+            // info!(target:"game over event","tail eaten");
 
             over_writer.send(GameOverEvent);
         }
@@ -204,8 +203,13 @@ impl Size {
     }
 }
 
-fn size_scaling(windows: Res<Windows>, mut q: Query<(&Size, &mut Transform)>) {
-    let window = windows.get_primary().unwrap();
+fn size_scaling(
+    primary_query: Query<&Window, With<PrimaryWindow>>,
+    mut q: Query<(&Size, &mut Transform)>,
+) {
+    let Ok(window) = primary_query.get_single() else {
+        return;
+    };
 
     for (sprite_size, mut transform) in q.iter_mut() {
         transform.scale = Vec3::new(
@@ -216,12 +220,18 @@ fn size_scaling(windows: Res<Windows>, mut q: Query<(&Size, &mut Transform)>) {
     }
 }
 
-fn position_translation(windows: Res<Windows>, mut q: Query<(&Position, &mut Transform)>) {
+fn position_translation(
+    mut q: Query<(&Position, &mut Transform)>,
+    primary_query: Query<&Window, With<PrimaryWindow>>,
+) {
     fn convert(pos: f32, bound_window: f32, bound_game: f32) -> f32 {
         let tile_size = bound_window / bound_game;
         pos * tile_size - (bound_window / 2.) + tile_size / 2.
     }
-    let window = windows.get_primary().unwrap();
+    let Ok(window) = primary_query.get_single() else {
+        return;
+    };
+
     for (pos, mut transform) in q.iter_mut() {
         transform.translation = Vec3::new(
             convert(pos.x as f32, window.width(), ARENA_WIDTH as f32),
@@ -260,6 +270,7 @@ fn snake_eating(
     food_positions: Query<(Entity, &Position), With<Food>>,
     head_positions: Query<&Position, With<SnakeHead>>,
 ) {
+    info!("eating");
     for head_pos in head_positions.iter() {
         for (ent, food_pos) in food_positions.iter() {
             if food_pos == head_pos {
@@ -287,7 +298,7 @@ struct GameOverEvent;
 
 fn game_over(
     mut commands: Commands,
-    over_reader: EventReader<GameOverEvent>,
+    mut over_reader: EventReader<GameOverEvent>,
     segments: Query<Entity, With<SnakeSegment>>,
     food: Query<Entity, With<Food>>,
 ) {
