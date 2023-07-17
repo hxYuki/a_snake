@@ -6,39 +6,26 @@ use bevy::{prelude::*, time::common_conditions::on_fixed_timer, window::PrimaryW
 use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR, SNAKE_SEGMENT_COLOR};
 use rand::prelude::random;
 
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
-enum FixedStepSet {
-    Tick,
-}
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(ClearColor(Color::rgb(0.04, 0.04, 0.04)))
         .add_event::<GrowthEvent>()
         .add_event::<GameOverEvent>()
-        .add_startup_systems((setup_window, setup_camera, spawn_snake))
-        .add_system(snake_movement_input.in_schedule(CoreSchedule::FixedUpdate))
-        // currently systemset missed `in_schedule` api, 
-        // maybe replace with `configure_set(FixedStepSet::Tick.in_schedule(CoreSchedule::FixedUpdate))` in later patch
-        .edit_schedule(CoreSchedule::FixedUpdate, |schedule| {
-            schedule
-                .add_systems(
-                    (snake_movement, snake_eating)
-                        .chain()
-                        .in_set(FixedStepSet::Tick),
-                )
-                .configure_set(
-                    FixedStepSet::Tick.run_if(on_fixed_timer(Duration::from_secs_f32(0.25))),
-                );
-        })
-        .add_system(snake_growth.run_if(on_event::<GrowthEvent>()))
-        .add_system(game_over.after(snake_movement))
-        .add_systems((position_translation, size_scaling).in_base_set(CoreSet::PostUpdate))
-        .add_system(
-            food_spawner
-                .in_schedule(CoreSchedule::FixedUpdate)
-                .run_if(on_fixed_timer(Duration::from_secs(1))),
+        .add_systems(Startup, (setup_window, setup_camera, spawn_snake))
+        .add_systems(FixedUpdate, snake_movement_input)
+        .add_systems(
+            FixedUpdate,
+            (snake_movement, snake_eating)
+                .chain()
+                .run_if(on_fixed_timer(Duration::from_secs_f32(0.25))),
+        )
+        .add_systems(Update, snake_growth.run_if(on_event::<GrowthEvent>()))
+        .add_systems(Update, game_over.after(snake_movement))
+        .add_systems(PostUpdate, (position_translation, size_scaling))
+        .add_systems(
+            FixedUpdate,
+            food_spawner.run_if(on_fixed_timer(Duration::from_secs(1))),
         )
         .run();
 }
@@ -269,7 +256,7 @@ fn food_spawner(mut commands: Commands) {
         Size::square(0.8),
     ));
 }
-
+#[derive(Event)]
 struct GrowthEvent;
 
 fn snake_eating(
@@ -301,6 +288,7 @@ fn snake_growth(
     }
 }
 
+#[derive(Event)]
 struct GameOverEvent;
 
 fn game_over(
