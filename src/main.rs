@@ -2,7 +2,7 @@ mod constants;
 
 use std::time::Duration;
 
-use bevy::{prelude::*, time::common_conditions::on_fixed_timer, window::PrimaryWindow};
+use bevy::{prelude::*, time::common_conditions::on_timer, window::PrimaryWindow};
 use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR, SNAKE_SEGMENT_COLOR};
 use rand::prelude::random;
 
@@ -13,19 +13,19 @@ fn main() {
         .add_event::<GrowthEvent>()
         .add_event::<GameOverEvent>()
         .add_systems(Startup, (setup_window, setup_camera, spawn_snake))
-        .add_systems(FixedUpdate, snake_movement_input)
+        .add_systems(Update, snake_movement_input)
         .add_systems(
             FixedUpdate,
             (snake_movement, snake_eating)
                 .chain()
-                .run_if(on_fixed_timer(Duration::from_secs_f32(0.25))),
+                .run_if(on_timer(Duration::from_secs_f32(0.25))),
         )
         .add_systems(Update, snake_growth.run_if(on_event::<GrowthEvent>()))
         .add_systems(Update, game_over.after(snake_movement))
         .add_systems(PostUpdate, (position_translation, size_scaling))
         .add_systems(
             FixedUpdate,
-            food_spawner.run_if(on_fixed_timer(Duration::from_secs(1))),
+            food_spawner.run_if(on_timer(Duration::from_secs(1))),
         )
         .run();
 }
@@ -43,6 +43,7 @@ fn setup_camera(mut commands: Commands) {
 
 #[derive(Component)]
 struct SnakeHead {
+    current_direction: Direction,
     direction: Direction,
     body: Vec<Entity>,
     last_tail: Option<Position>,
@@ -69,6 +70,7 @@ fn spawn_snake(mut commands: Commands) {
 
     let c = SnakeHead {
         direction: Direction::Right,
+        current_direction: Direction::Right,
         body: vec![head.id(), b],
         last_tail: None,
     };
@@ -107,7 +109,7 @@ fn snake_movement_input(keyboard_input: Res<Input<KeyCode>>, mut heads: Query<&m
             head.direction
         };
 
-        if dir != head.direction.opposite() {
+        if dir != head.current_direction.opposite() {
             head.direction = dir;
         }
     }
@@ -155,6 +157,8 @@ fn snake_movement(
             });
 
         head.last_tail = Some(*segspos.last().unwrap());
+
+        head.current_direction = head.direction;
     }
 }
 
@@ -282,7 +286,7 @@ fn snake_growth(
 ) {
     for mut head in heads.iter_mut() {
         let pos = head.last_tail.unwrap();
-        if growth_reader.iter().next().is_some() {
+        if growth_reader.read().next().is_some() {
             head.body.push(spawn_segement(&mut commands, pos))
         }
     }
