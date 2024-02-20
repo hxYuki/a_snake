@@ -95,15 +95,15 @@ impl Direction {
         }
     }
 }
-fn snake_movement_input(keyboard_input: Res<Input<KeyCode>>, mut heads: Query<&mut SnakeHead>) {
+fn snake_movement_input(keyboard_input: Res<ButtonInput<KeyCode>>, mut heads: Query<&mut SnakeHead>) {
     for mut head in heads.iter_mut() {
-        let dir = if keyboard_input.any_pressed([KeyCode::A, KeyCode::Left]) {
+        let dir = if keyboard_input.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]) {
             Direction::Left
-        } else if keyboard_input.any_pressed([KeyCode::D, KeyCode::Right]) {
+        } else if keyboard_input.any_pressed([KeyCode::KeyD, KeyCode::ArrowRight]) {
             Direction::Right
-        } else if keyboard_input.any_pressed([KeyCode::S, KeyCode::Down]) {
+        } else if keyboard_input.any_pressed([KeyCode::KeyS, KeyCode::ArrowDown]) {
             Direction::Down
-        } else if keyboard_input.any_pressed([KeyCode::W, KeyCode::Up]) {
+        } else if keyboard_input.any_pressed([KeyCode::KeyW, KeyCode::ArrowUp]) {
             Direction::Up
         } else {
             head.direction
@@ -212,8 +212,8 @@ fn size_scaling(
 
     for (sprite_size, mut transform) in q.iter_mut() {
         transform.scale = Vec3::new(
-            sprite_size.width / ARENA_WIDTH as f32 * window.width() as f32,
-            sprite_size.height / ARENA_HEIGHT as f32 * window.height() as f32,
+            sprite_size.width / ARENA_WIDTH as f32 * window.width(),
+            sprite_size.height / ARENA_HEIGHT as f32 * window.height(),
             1.,
         )
     }
