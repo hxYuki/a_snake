@@ -1,16 +1,20 @@
+mod bundles;
 mod constants;
 
 use std::time::Duration;
 
-use bevy::{prelude::*, time::common_conditions::on_timer, window::PrimaryWindow};
-use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR, SNAKE_SEGMENT_COLOR};
+use bevy::{
+    ecs::component::StorageType, prelude::*, time::common_conditions::on_timer,
+    window::PrimaryWindow,
+};
+use bundles::SnakeSegmentBundle;
+use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR};
 use rand::prelude::random;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .insert_resource(ClearColor(Color::rgb(0.04, 0.04, 0.04)))
-        .add_event::<GrowthEvent>()
+        .insert_resource(ClearColor(Color::srgb(0.04, 0.04, 0.04)))
         .add_event::<GameOverEvent>()
         .add_systems(Startup, (setup_window, setup_camera, spawn_snake))
         .add_systems(Update, snake_movement_input)
@@ -20,7 +24,7 @@ fn main() {
                 .chain()
                 .run_if(on_timer(Duration::from_secs_f32(0.25))),
         )
-        .add_systems(Update, snake_growth.run_if(on_event::<GrowthEvent>()))
+        // .add_systems(Update, snake_growth.run_if(on_event::<GrowthEvent>()))
         .add_systems(Update, game_over.after(snake_movement))
         .add_systems(PostUpdate, (position_translation, size_scaling))
         .add_systems(
@@ -50,32 +54,36 @@ struct SnakeHead {
 }
 
 fn spawn_snake(mut commands: Commands) {
-    let b = spawn_segement(&mut commands, Position { x: 3, y: 2 });
-    let mut head = commands.spawn((
-        SpriteBundle {
-            sprite: Sprite {
-                color: SNAKE_HEAD_COLOR,
+    // let b = spawn_segement(&mut commands, Position { x: 3, y: 2 });
+    let head = commands.spawn_empty().id();
+
+    commands
+        .entity(head)
+        .insert((
+            SpriteBundle {
+                sprite: Sprite {
+                    color: SNAKE_HEAD_COLOR,
+                    ..default()
+                },
+                transform: Transform {
+                    scale: Vec3::new(10., 10., 10.),
+                    ..default()
+                },
                 ..default()
             },
-            transform: Transform {
-                scale: Vec3::new(10., 10., 10.),
-                ..default()
+            SnakeSegment(head),
+            Position { x: 3, y: 3 },
+            Size::square(0.8),
+            SnakeHead {
+                direction: Direction::Right,
+                current_direction: Direction::Right,
+                body: vec![],
+                last_tail: None,
             },
-            ..default()
-        },
-        SnakeSegment,
-        Position { x: 3, y: 3 },
-        Size::square(0.8),
-    ));
+        ))
+        .observe(snake_growth);
 
-    let c = SnakeHead {
-        direction: Direction::Right,
-        current_direction: Direction::Right,
-        body: vec![head.id(), b],
-        last_tail: None,
-    };
-
-    head.insert(c);
+    commands.spawn(SnakeSegmentBundle::new(head, Position { x: 3, y: 2 }));
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -95,7 +103,10 @@ impl Direction {
         }
     }
 }
-fn snake_movement_input(keyboard_input: Res<ButtonInput<KeyCode>>, mut heads: Query<&mut SnakeHead>) {
+fn snake_movement_input(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut heads: Query<&mut SnakeHead>,
+) {
     for mut head in heads.iter_mut() {
         let dir = if keyboard_input.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]) {
             Direction::Left
@@ -162,25 +173,48 @@ fn snake_movement(
     }
 }
 
-#[derive(Component)]
-struct SnakeSegment;
+// #[derive(Component)]
+struct SnakeSegment(Entity);
 
-fn spawn_segement(commands: &mut Commands, position: Position) -> Entity {
-    (*commands)
-        .spawn((
-            SpriteBundle {
-                sprite: Sprite {
-                    color: SNAKE_SEGMENT_COLOR,
-                    ..default()
-                },
-                ..default()
-            },
-            SnakeSegment,
-            position,
-            Size::square(0.65),
-        ))
-        .id()
+impl Component for SnakeSegment {
+    const STORAGE_TYPE: StorageType = StorageType::Table;
+
+    fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
+        hooks.on_add(|mut world, targeted_entity, _component_id| {
+            // let mut seg = world.entity_mut(targeted_entity);
+            let head_ent = world
+                .entity(targeted_entity)
+                .get::<SnakeSegment>()
+                .unwrap()
+                .0;
+
+            world
+                .entity_mut(head_ent)
+                .get_mut::<SnakeHead>()
+                .unwrap()
+                .body
+                .push(targeted_entity);
+            // world.flush_commands();
+        });
+    }
 }
+
+// fn spawn_segement(commands: &mut Commands, position: Position) -> Entity {
+//     (*commands)
+//         .spawn((
+//             SpriteBundle {
+//                 sprite: Sprite {
+//                     color: SNAKE_SEGMENT_COLOR,
+//                     ..default()
+//                 },
+//                 ..default()
+//             },
+//             SnakeSegment,
+//             position,
+//             Size::square(0.65),
+//         ))
+//         .id()
+// }
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq)]
 struct Position {
@@ -265,31 +299,28 @@ struct GrowthEvent;
 
 fn snake_eating(
     mut commands: Commands,
-    mut growth_writer: EventWriter<GrowthEvent>,
+    // mut growth_writer: EventWriter<GrowthEvent>,
     food_positions: Query<(Entity, &Position), With<Food>>,
-    head_positions: Query<&Position, With<SnakeHead>>,
+    head_positions: Query<(Entity, &Position), With<SnakeHead>>,
 ) {
-    for head_pos in head_positions.iter() {
+    for (head_ent, head_pos) in head_positions.iter() {
         for (ent, food_pos) in food_positions.iter() {
             if food_pos == head_pos {
                 commands.entity(ent).despawn();
-                growth_writer.send(GrowthEvent);
+                commands.trigger_targets(GrowthEvent, [head_ent]);
             }
         }
     }
 }
 
 fn snake_growth(
+    growth_trigger: Trigger<GrowthEvent>,
     mut commands: Commands,
-    mut heads: Query<&mut SnakeHead>,
-    mut growth_reader: EventReader<GrowthEvent>,
+    heads: Query<(Entity, &SnakeHead)>,
 ) {
-    for mut head in heads.iter_mut() {
-        let pos = head.last_tail.unwrap();
-        if growth_reader.read().next().is_some() {
-            head.body.push(spawn_segement(&mut commands, pos))
-        }
-    }
+    let (head_ent, head) = heads.get(growth_trigger.entity()).unwrap();
+    let pos = head.last_tail.unwrap();
+    commands.spawn(SnakeSegmentBundle::new(head_ent, pos));
 }
 
 #[derive(Event)]
