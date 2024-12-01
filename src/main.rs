@@ -4,16 +4,28 @@ mod constants;
 use std::time::Duration;
 
 use bevy::{
-    ecs::component::StorageType, prelude::*, time::common_conditions::on_timer,
+    ecs::{component::ComponentId, world::DeferredWorld},
+    prelude::{Transform, *},
+    render::{
+        settings::{Backends, RenderCreation, WgpuSettings},
+        RenderPlugin,
+    },
+    time::common_conditions::on_timer,
     window::PrimaryWindow,
 };
 use bundles::SnakeSegmentBundle;
-use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR};
+use constants::{ARENA_HEIGHT, ARENA_WIDTH, FOOD_COLOR, SNAKE_HEAD_COLOR, SNAKE_SEGMENT_COLOR};
 use rand::prelude::random;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(RenderPlugin {
+            render_creation: RenderCreation::Automatic(WgpuSettings {
+                backends: Some(Backends::VULKAN),
+                ..default()
+            }),
+            ..default()
+        }))
         .insert_resource(ClearColor(Color::srgb(0.04, 0.04, 0.04)))
         .add_event::<GameOverEvent>()
         .add_systems(Startup, (setup_window, setup_camera, spawn_snake))
@@ -34,6 +46,10 @@ fn main() {
         .run();
 }
 
+fn colored_sprite(color: Color) -> Sprite {
+    Sprite { color, ..default() }
+}
+
 fn setup_window(mut primary_query: Query<&mut Window, With<PrimaryWindow>>) {
     let mut window = primary_query.get_single_mut().unwrap();
 
@@ -42,10 +58,11 @@ fn setup_window(mut primary_query: Query<&mut Window, With<PrimaryWindow>>) {
 }
 
 fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2dBundle { ..default() });
+    commands.spawn(Camera2d);
 }
 
 #[derive(Component)]
+#[require(Sprite(|| colored_sprite(SNAKE_HEAD_COLOR)))]
 struct SnakeHead {
     current_direction: Direction,
     direction: Direction,
@@ -54,32 +71,21 @@ struct SnakeHead {
 }
 
 fn spawn_snake(mut commands: Commands) {
-    // let b = spawn_segement(&mut commands, Position { x: 3, y: 2 });
+    // let b = spawn_segement(&mut] commands, Position { x: 3, y: 2 });
     let head = commands.spawn_empty().id();
 
     commands
         .entity(head)
         .insert((
-            SpriteBundle {
-                sprite: Sprite {
-                    color: SNAKE_HEAD_COLOR,
-                    ..default()
-                },
-                transform: Transform {
-                    scale: Vec3::new(10., 10., 10.),
-                    ..default()
-                },
-                ..default()
-            },
-            SnakeSegment(head),
-            Position { x: 3, y: 3 },
-            Size::square(0.8),
             SnakeHead {
                 direction: Direction::Right,
                 current_direction: Direction::Right,
                 body: vec![],
                 last_tail: None,
             },
+            SnakeSegment(head),
+            Position { x: 3, y: 3 },
+            Size::square(0.8),
         ))
         .observe(snake_growth);
 
@@ -173,56 +179,37 @@ fn snake_movement(
     }
 }
 
-// #[derive(Component)]
+#[derive(Component)]
+#[require(Sprite(|| colored_sprite(SNAKE_SEGMENT_COLOR)), Position, Size, Transform(|| Transform::from_scale(Vec3::splat(10.))))]
+#[component(on_add = on_snake_segment_add)]
 struct SnakeSegment(Entity);
 
-impl Component for SnakeSegment {
-    const STORAGE_TYPE: StorageType = StorageType::Table;
+fn on_snake_segment_add(
+    mut world: DeferredWorld,
+    targeted_entity: Entity,
+    _component_id: ComponentId,
+) {
+    let head_ent = world
+        .entity(targeted_entity)
+        .get::<SnakeSegment>()
+        .unwrap()
+        .0;
 
-    fn register_component_hooks(hooks: &mut bevy::ecs::component::ComponentHooks) {
-        hooks.on_add(|mut world, targeted_entity, _component_id| {
-            // let mut seg = world.entity_mut(targeted_entity);
-            let head_ent = world
-                .entity(targeted_entity)
-                .get::<SnakeSegment>()
-                .unwrap()
-                .0;
-
-            world
-                .entity_mut(head_ent)
-                .get_mut::<SnakeHead>()
-                .unwrap()
-                .body
-                .push(targeted_entity);
-            // world.flush_commands();
-        });
-    }
+    world
+        .entity_mut(head_ent)
+        .get_mut::<SnakeHead>()
+        .unwrap()
+        .body
+        .push(targeted_entity);
 }
 
-// fn spawn_segement(commands: &mut Commands, position: Position) -> Entity {
-//     (*commands)
-//         .spawn((
-//             SpriteBundle {
-//                 sprite: Sprite {
-//                     color: SNAKE_SEGMENT_COLOR,
-//                     ..default()
-//                 },
-//                 ..default()
-//             },
-//             SnakeSegment,
-//             position,
-//             Size::square(0.65),
-//         ))
-//         .id()
-// }
-
-#[derive(Debug, Component, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, Default)]
 struct Position {
     x: i32,
     y: i32,
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct Size {
     width: f32,
     height: f32,
@@ -275,23 +262,16 @@ fn position_translation(
 }
 
 #[derive(Component)]
+#[require(Sprite(|| colored_sprite(FOOD_COLOR)), Position, Size(|| Size::square(0.8)))]
 struct Food;
 
 fn food_spawner(mut commands: Commands) {
     commands.spawn((
-        SpriteBundle {
-            sprite: Sprite {
-                color: FOOD_COLOR,
-                ..default()
-            },
-            ..default()
-        },
         Food,
         Position {
             x: (random::<f32>() * ARENA_WIDTH as f32) as i32,
             y: (random::<f32>() * ARENA_HEIGHT as f32) as i32,
         },
-        Size::square(0.8),
     ));
 }
 #[derive(Event)]
