@@ -39,7 +39,7 @@ fn main() {
         .add_systems(PostUpdate, (position_translation, size_scaling))
         .add_systems(
             FixedUpdate,
-            food_spawner.run_if(on_timer(Duration::from_secs(1))),
+            food_spawner.run_if(on_timer(Duration::from_secs(5))),
         )
         .run();
 }
@@ -251,14 +251,20 @@ fn position_translation(
 #[require(Sprite = colored_sprite(FOOD_COLOR), Position, Size::square(0.8))]
 struct Food;
 
-fn food_spawner(mut commands: Commands) {
-    commands.spawn((
-        Food,
-        Position {
-            x: (random::<f32>() * ARENA_WIDTH as f32) as i32,
-            y: (random::<f32>() * ARENA_HEIGHT as f32) as i32,
-        },
-    ));
+fn random_position() -> Position {
+    Position {
+        x: (random::<f32>() * ARENA_WIDTH as f32) as i32,
+        y: (random::<f32>() * ARENA_HEIGHT as f32) as i32,
+    }
+}
+fn food_spawner(mut commands: Commands, segments: Query<&Position, With<SnakeSegment>>) {
+    let pos = loop {
+        let food_pos = random_position();
+        if !segments.iter().any(|p| *p == food_pos) {
+            break food_pos;
+        }
+    };
+    commands.spawn((Food, pos));
 }
 #[derive(EntityEvent)]
 struct GrowthEvent {
