@@ -26,7 +26,7 @@ fn main() {
             ..default()
         }))
         .insert_resource(ClearColor(Color::srgb(0.04, 0.04, 0.04)))
-        .add_event::<GameOverEvent>()
+        .add_message::<GameOver>()
         .add_systems(Startup, (setup_window, setup_camera, spawn_snake))
         .add_systems(Update, snake_movement_input)
         .add_systems(
@@ -52,7 +52,7 @@ fn setup_window(mut primary_query: Query<&mut Window, With<PrimaryWindow>>) -> R
     let mut window = primary_query.single_mut()?;
 
     window.title = "Snake!".to_string();
-    window.resolution = (500., 500.).into();
+    window.resolution = (500, 500).into();
 
     Ok(())
 }
@@ -137,7 +137,7 @@ fn snake_movement_input(
     }
 }
 fn snake_movement(
-    mut over_writer: EventWriter<GameOverEvent>,
+    mut over_writer: MessageWriter<GameOver>,
     mut heads: Query<(&mut SnakeHead, Entity, &Bodies)>,
     mut positions: Query<&mut Position>,
 ) -> Result {
@@ -161,10 +161,10 @@ fn snake_movement(
             || head_pos.x as u32 >= ARENA_WIDTH
             || head_pos.y as u32 >= ARENA_HEIGHT
         {
-            over_writer.write(GameOverEvent);
+            over_writer.write(GameOver);
         }
         if segspos.contains(&head_pos) {
-            over_writer.write(GameOverEvent);
+            over_writer.write(GameOver);
         }
 
         let pos_iter = std::iter::once(old_head_pos).chain(segspos.into_iter());
@@ -260,8 +260,10 @@ fn food_spawner(mut commands: Commands) {
         },
     ));
 }
-#[derive(Event)]
-struct GrowthEvent;
+#[derive(EntityEvent)]
+struct GrowthEvent {
+    entity: Entity,
+}
 
 fn snake_eating(
     mut commands: Commands,
@@ -272,30 +274,30 @@ fn snake_eating(
         for (ent, food_pos) in food_positions.iter() {
             if food_pos == head_pos {
                 commands.entity(ent).despawn();
-                commands.trigger_targets(GrowthEvent, [head_ent]);
+                commands.trigger(GrowthEvent { entity: head_ent });
             }
         }
     }
 }
 
 fn snake_growth(
-    growth_trigger: Trigger<GrowthEvent>,
+    growth_trigger: On<GrowthEvent>,
     mut commands: Commands,
     heads: Query<(Entity, &SnakeHead)>,
 ) -> Result {
-    let (head_ent, head) = heads.get(growth_trigger.target())?;
+    let (head_ent, head) = heads.get(growth_trigger.entity)?;
     let pos = head.last_tail.unwrap();
     commands.spawn(new_snake_segment(head_ent, pos));
 
     Ok(())
 }
 
-#[derive(Event)]
-struct GameOverEvent;
+#[derive(Message)]
+struct GameOver;
 
 fn game_over(
     mut commands: Commands,
-    mut over_reader: EventReader<GameOverEvent>,
+    mut over_reader: MessageReader<GameOver>,
     segments: Query<Entity, With<SnakeSegment>>,
     food: Query<Entity, With<Food>>,
 ) {
